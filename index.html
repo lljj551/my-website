@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="dark" />
+  <meta name="theme-color" content="#04060a" />
+  <meta name="description" content="张睿栋 · 手势粒子与反应力挑战 —— 纯前端单页实验场" />
+  <title>张睿栋 / SIGNAL BLOOM</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="css/base.css" />
+  <link rel="stylesheet" href="css/hero.css" />
+  <link rel="stylesheet" href="css/challenge.css" />
+  <link rel="stylesheet" href="css/result.css" />
+
+  <!-- favicon：内联 SVG，避免额外请求 -->
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2304060a'/%3E%3Cpath d='M16 4v24M4 16h24' stroke='%23ff5a2b' stroke-width='1.2'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='%23c9f24d' stroke-width='1.2'/%3E%3C/svg%3E" />
+</head>
+
+<body>
+  <!-- 全局装饰：扫描网格 / 噪点 / 边角刻度（纯 CSS，不参与交互） -->
+  <div class="fx-grid" aria-hidden="true"></div>
+  <div class="fx-vignette" aria-hidden="true"></div>
+
+  <!-- 环境提示条：CDN 缺失、file:// 限制、WebGL 不可用时由 main.js 写入 -->
+  <div class="sys-note" id="sys-note" role="status" aria-live="polite" hidden></div>
+
+  <main id="app" class="app">
+
+    <!-- ============================================================
+         第 1 屏 / HERO —— 手势粒子交互区
+         结构：canvas 粒子层 → 静态兜底光晕 → 信息层（品牌、提示、绽放文案、评分）
+         ============================================================ -->
+    <section id="screen-hero" class="screen screen--hero" data-screen="01" aria-labelledby="hero-title">
+
+      <!-- 粒子画布：Three.js 渲染；骨架期仅作占位，A 模块填充 -->
+      <canvas id="particle-stage" class="hero__stage" aria-hidden="true"></canvas>
+
+      <!-- 粒子未就绪时的 CSS 兜底：一枚呼吸的花苞核心 -->
+      <div class="hero__aura" id="hero-aura" aria-hidden="true">
+        <span class="hero__aura-core"></span>
+        <span class="hero__aura-ring"></span>
+      </div>
+
+      <header class="hero__mark">
+        <span class="mark__id">ZRD—01</span>
+        <span class="mark__line" aria-hidden="true"></span>
+        <span class="mark__name">张睿栋 / SIGNAL BLOOM</span>
+      </header>
+
+      <!-- 摄像头预览：右下角监视窗口，就绪后由 hero.js 加 .is-live -->
+      <aside class="cam" id="cam-dock" aria-hidden="true">
+        <div class="cam__frame">
+          <video id="camera-video" class="cam__video" playsinline muted autoplay></video>
+          <span class="cam__meter" aria-hidden="true"><i id="cam-meter"></i></span>
+          <span class="cam__corner cam__corner--tl"></span>
+          <span class="cam__corner cam__corner--tr"></span>
+          <span class="cam__corner cam__corner--bl"></span>
+          <span class="cam__corner cam__corner--br"></span>
+        </div>
+        <div class="cam__meta">
+          <span class="cam__dot" id="cam-dot"></span>
+          <span class="cam__state" id="cam-state">STANDBY</span>
+        </div>
+      </aside>
+
+      <!-- 加载 / 引导文案：阶段与文案映射集中在 hero.js 的 COPY 表 -->
+      <div class="hero__hint" id="hero-hint" aria-live="polite">
+        <p class="hero__prompt" id="hero-prompt">请将手掌正对摄像头，然后张开手指</p>
+        <p class="hero__sub" id="hero-sub">将手掌放入右下角取景框 · 五指张开并保持 0.5 秒</p>
+        <p class="hero__hint-note" id="hero-hint-note" hidden></p>
+
+        <!-- 兜底入口：file:// / 移动端 / 摄像头被拒时，点按手动触发绽放 -->
+        <button class="hero__fallback" id="hero-fallback" type="button" hidden>
+          <span class="hero__fallback-key">TAP</span>
+          点按此处·手动绽放
+        </button>
+      </div>
+
+      <!-- 绽放后浮现：姓名 + 五星评分（骨架期隐藏） -->
+      <div class="hero__reveal" id="hero-reveal" hidden>
+        <p class="eyebrow">SIGNAL RECEIVED · 绽放完成</p>
+        <h1 class="hero__title" id="hero-title" aria-label="我是张睿栋，请为我打分">
+          我是张睿栋，<br /><span class="hero__title-accent">请为我打分</span>
+        </h1>
+
+        <div class="rating" id="rating" role="radiogroup" aria-label="请为张睿栋打分，1 到 5 星">
+          <div class="rating__head">
+            <span class="rating__avg" id="rating-avg" aria-live="polite">平均分 —</span>
+            <span class="rating__count" id="rating-count">0 次评分</span>
+          </div>
+
+          <div class="rating__stars">
+            <button class="rating__star" type="button" data-value="1" role="radio" aria-checked="false" aria-label="1 星">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-star" /></svg>
+            </button>
+            <button class="rating__star" type="button" data-value="2" role="radio" aria-checked="false" aria-label="2 星">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-star" /></svg>
+            </button>
+            <button class="rating__star" type="button" data-value="3" role="radio" aria-checked="false" aria-label="3 星">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-star" /></svg>
+            </button>
+            <button class="rating__star" type="button" data-value="4" role="radio" aria-checked="false" aria-label="4 星">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-star" /></svg>
+            </button>
+            <button class="rating__star" type="button" data-value="5" role="radio" aria-checked="false" aria-label="5 星">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-star" /></svg>
+            </button>
+          </div>
+          <div class="rating__meta">
+            <span class="rating__label" id="rating-label" aria-live="polite">未评分</span>
+            <span class="rating__saved" id="rating-saved" hidden>已记录 · 仅存本机</span>
+          </div>
+          <p class="rating__last" id="rating-last" hidden></p>
+        </div>
+      </div>
+
+      <footer class="hero__foot">
+        <p class="hero__scroll">
+          <span class="hero__scroll-line" aria-hidden="true"></span>
+          SCROLL · 向下进入反应力挑战
+        </p>
+        <p class="hero__meta" id="hero-meta">CAM 01 · OFFLINE</p>
+      </footer>
+    </section>
+
+    <!-- ============================================================
+         第 2 屏 / CHALLENGE —— 反应力挑战
+         内含内联结算区（即“第 3 屏”，不新增滚动屏）
+         ============================================================ -->
+    <section id="screen-challenge" class="screen screen--challenge" data-screen="02" aria-labelledby="challenge-title">
+
+      <div class="challenge__inner">
+        <header class="challenge__head">
+          <div>
+            <p class="eyebrow">02 / REFLEX</p>
+            <h2 class="challenge__title" id="challenge-title" aria-label="反应力挑战">
+              反应力<br /><span class="challenge__title-accent">挑战</span>
+            </h2>
+          </div>
+
+          <div class="challenge__brief">
+            <p class="challenge__lede">
+              5 组目标。悍匪与人质同时出现，速度越来越快。<br />
+              准度与克制，都被画布记录下来。
+            </p>
+            <ol class="rules" aria-label="规则说明">
+              <li class="rules__item"><span class="rules__no">01</span><span>共 <b>5 组</b>，每组 2~4 个目标，悍匪与人质混合。</span></li>
+              <li class="rules__item"><span class="rules__no">02</span><span>命中悍匪 <b>+1</b>；命中任意一名人质，<b>立即失败</b>。</span></li>
+              <li class="rules__item"><span class="rules__no">03</span><span>超时悍匪计入<b>漏网</b>，不影响胜负；结算显示命中率。</span></li>
+            </ol>
+          </div>
+        </header>
+
+        <!-- 挑战控制台：HUD + canvas 战场 + 内联结算层 -->
+        <section class="console" id="console" aria-label="射击区域">
+          <header class="hud">
+            <div class="hud__cell">
+              <span class="hud__k">ROUND</span>
+              <strong class="hud__v" id="hud-round">— / 5</strong>
+            </div>
+            <div class="hud__cell">
+              <span class="hud__k">SCORE</span>
+              <strong class="hud__v" id="hud-score">00</strong>
+            </div>
+            <div class="hud__cell">
+              <span class="hud__k">SHOTS</span>
+              <strong class="hud__v" id="hud-shots">00</strong>
+            </div>
+            <div class="hud__cell hud__cell--wide">
+              <span class="hud__k">ACCURACY</span>
+              <strong class="hud__v" id="hud-acc">—</strong>
+            </div>
+            <div class="hud__bar" aria-hidden="true"><span id="hud-bar-fill"></span></div>
+          </header>
+
+          <div class="field" id="field">
+            <canvas id="game-canvas" class="field__canvas" aria-label="射击游戏画布"></canvas>
+
+            <!-- 待机遮罩：规则 / 开始 -->
+            <div class="field__idle" id="field-idle">
+              <p class="field__idle-kicker">MISSION BRIEF</p>
+              <p class="field__idle-text">射中所有悍匪，射中任意一名人质即失败。<br />共 5 组，速度越来越快。</p>
+
+              <div class="field__legend" aria-hidden="true">
+                <span class="field__legend-item"><i class="target-dot target-dot--gang"></i>悍匪 · 深色 / 黑眼罩</span>
+                <span class="field__legend-item"><i class="target-dot target-dot--hostage"></i>人质 · 浅色 / 白眼罩</span>
+              </div>
+
+              <button class="btn btn--primary" id="btn-start" type="button">
+                <span>开始挑战</span>
+                <kbd class="btn__kbd">CLICK</kbd>
+              </button>
+              <p class="field__idle-hint">鼠标移动瞄准 · 点击射击 · 不误伤人质</p>
+            </div>
+
+            <!-- 倒计时遮罩：3 · 2 · 1 -->
+            <div class="field__countdown" id="field-countdown" hidden aria-hidden="true">3</div>
+
+            <!-- ================= 第 3 屏 / 结算区（内联于第 2 屏） ================= -->
+            <div class="result" id="result-panel" role="dialog" aria-modal="true" aria-labelledby="result-headline" hidden>
+              <div class="result__frame">
+                <header class="result__head">
+                  <p class="eyebrow">03 / DEBRIEF</p>
+                  <span class="result__tag" id="result-tag">RESULT</span>
+                </header>
+
+                <div class="result__main">
+                  <div class="result__grade">
+                    <span class="result__grade-char" id="result-grade">—</span>
+                    <span class="result__grade-k" id="result-grade-k">RESULT</span>
+                  </div>
+
+                  <div class="result__copy">
+                    <p class="result__headline" id="result-headline">等待挑战</p>
+                    <p class="result__sub" id="result-sub">完成 5 组后自动结算。</p>
+                  </div>
+                </div>
+
+                <dl class="result__stats">
+                  <div class="stat"><dt>命中悍匪</dt><dd id="stat-hits">0</dd></div>
+                  <div class="stat"><dt>总射击</dt><dd id="stat-shots">0</dd></div>
+                  <div class="stat"><dt>命中率</dt><dd id="stat-acc">—</dd></div>
+                  <div class="stat"><dt>漏网悍匪</dt><dd id="stat-escaped">0</dd></div>
+                </dl>
+
+                <p class="result__extra" id="result-extra" hidden></p>
+
+                <footer class="result__actions">
+                  <button class="btn btn--primary" id="btn-replay" type="button">重新挑战</button>
+                  <button class="btn btn--ghost" id="btn-top" type="button">回到顶点</button>
+                </footer>
+              </div>
+            </div>
+            <!-- ================= /结算区 ================= -->
+          </div>
+
+          <footer class="console__foot">
+            <span>MODE · CLICK</span>
+            <span id="console-hint">鼠标移动瞄准 · 点击射击</span>
+            <span>NO AUDIO · 纯视觉反馈</span>
+          </footer>
+        </section>
+      </div>
+
+      <footer class="site-foot">
+        <span>© <span id="year">2026</span> 张睿栋</span>
+        <span>纯前端 · 无后端 · localStorage</span>
+        <a href="#screen-hero" class="site-foot__top">回到顶点 ↑</a>
+      </footer>
+    </section>
+  </main>
+
+  <!-- 右侧章节导航：由 main.js 根据滚动位置同步 -->
+  <nav class="rail" aria-label="章节导航">
+    <a class="rail__item is-active" href="#screen-hero" data-nav="01"><span>01</span><i></i></a>
+    <a class="rail__item" href="#screen-challenge" data-nav="02"><span>02</span><i></i></a>
+    <a class="rail__item" href="#result-panel" data-nav="03" aria-disabled="true"><span>03</span><i></i></a>
+  </nav>
+
+  <!-- 图标库 -->
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-star" viewBox="0 0 24 24">
+      <path d="M12 2.75l2.86 5.8 6.4.93-4.63 4.51 1.09 6.37L12 17.35l-5.72 3.01 1.09-6.37L2.74 9.48l6.4-.93L12 2.75z" />
+    </symbol>
+  </svg>
+
+  <noscript>
+    <p class="noscript">本页依赖 JavaScript 与 WebGL。请启用脚本后重新载入。</p>
+  </noscript>
+
+  <!-- ============================================================
+       第三方库（CDN，经典脚本，保证 file:// 直接双击也能加载）
+       - Three.js      粒子渲染
+       - MediaPipe Hands 手势识别（需 http:// 或 https:// 环境）
+       ============================================================ -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" defer></script>
+
+  <!-- 业务脚本：顺序固定，全部挂在 window.ZRD 下 -->
+  <script src="js/config.js" defer></script>
+  <script src="js/storage.js" defer></script>
+  <script src="js/particles.js" defer></script>
+  <script src="js/hand-tracker.js" defer></script>
+  <script src="js/game.js" defer></script>
+  <script src="js/results.js" defer></script>
+  <script src="js/hero.js" defer></script>
+  <script src="js/main.js" defer></script>
+</body>
+</html>
