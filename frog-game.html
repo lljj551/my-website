@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>奶蛙打僵尸 · 第一夜</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='34' r='25' fill='%238dffc0'/%3E%3Ccircle cx='23' cy='24' r='9' fill='%23fff9d7'/%3E%3Ccircle cx='41' cy='24' r='9' fill='%23fff9d7'/%3E%3Ccircle cx='24' cy='25' r='4' fill='%23213c30'/%3E%3Ccircle cx='40' cy='25' r='4' fill='%23213c30'/%3E%3Cpath d='M22 42 Q32 50 42 42' fill='none' stroke='%23213c30' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
   <style>
@@ -22,6 +22,8 @@
       height: 100%;
       margin: 0;
       overflow: hidden;
+      overscroll-behavior: none;
+      touch-action: none;
     }
 
     body {
@@ -87,6 +89,354 @@
       touch-action: none;
     }
 
+    .mobile-controls {
+      display: none;
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      pointer-events: none;
+      touch-action: none;
+    }
+
+    .touch-device.is-landscape .mobile-controls {
+      display: block;
+    }
+
+    .touch-device.is-portrait .mobile-controls {
+      display: none !important;
+    }
+
+    .joystick-zone {
+      position: absolute;
+      left: calc(2.4% + env(safe-area-inset-left, 0px));
+      bottom: calc(10.8% + env(safe-area-inset-bottom, 0px));
+      width: clamp(84px, 15.5vmin, 126px);
+      aspect-ratio: 1 / 1;
+      pointer-events: auto;
+      touch-action: none;
+      z-index: 2;
+    }
+
+    .joystick-base {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      border: 1.5px solid rgba(162, 255, 200, 0.38);
+      background:
+        radial-gradient(
+          circle at 50% 46%,
+          rgba(116, 255, 177, 0.08),
+          rgba(4, 16, 17, 0.35) 62%,
+          rgba(3, 10, 12, 0.55) 100%
+        );
+      box-shadow:
+        0 8px 26px rgba(0, 0, 0, 0.42),
+        inset 0 0 22px rgba(112, 255, 173, 0.08);
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
+      transition: border-color 0.12s ease, box-shadow 0.12s ease;
+    }
+
+    .joystick-base::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 58%;
+      height: 58%;
+      border-radius: 50%;
+      border: 1px dashed rgba(163, 255, 202, 0.14);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+    }
+
+    .joystick-zone.is-active .joystick-base {
+      border-color: rgba(185, 255, 212, 0.72);
+      box-shadow:
+        0 8px 30px rgba(0, 0, 0, 0.46),
+        0 0 24px rgba(92, 255, 162, 0.16),
+        inset 0 0 26px rgba(112, 255, 173, 0.12);
+    }
+
+    .joystick-knob {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 42%;
+      height: 42%;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      background:
+        radial-gradient(
+          circle at 38% 32%,
+          rgba(239, 255, 243, 0.95),
+          rgba(116, 255, 174, 0.88) 45%,
+          rgba(48, 196, 126, 0.8) 100%
+        );
+      box-shadow:
+        0 4px 12px rgba(0, 0, 0, 0.36),
+        0 0 20px rgba(112, 255, 173, 0.24);
+      border: 1px solid rgba(229, 255, 239, 0.6);
+      pointer-events: none;
+      will-change: transform;
+    }
+
+    .joy-arrow {
+      position: absolute;
+      color: rgba(183, 255, 211, 0.34);
+      font-size: clamp(8px, 1.5vmin, 11px);
+      line-height: 1;
+      pointer-events: none;
+    }
+
+    .joy-arrow.up {
+      left: 50%;
+      top: 8%;
+      transform: translateX(-50%);
+    }
+
+    .joy-arrow.down {
+      left: 50%;
+      bottom: 8%;
+      transform: translateX(-50%);
+    }
+
+    .joy-arrow.left {
+      left: 8%;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .joy-arrow.right {
+      right: 8%;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .joystick-caption {
+      position: absolute;
+      left: 50%;
+      top: calc(100% + 2px);
+      transform: translateX(-50%);
+      color: rgba(189, 255, 216, 0.44);
+      font-size: clamp(8px, 1.5vmin, 11px);
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .skill-pad {
+      position: absolute;
+      right: calc(2.4% + env(safe-area-inset-right, 0px));
+      bottom: calc(10.8% + env(safe-area-inset-bottom, 0px));
+      display: flex;
+      align-items: flex-end;
+      gap: clamp(7px, 1.1vmin, 12px);
+      pointer-events: auto;
+      touch-action: none;
+      z-index: 2;
+    }
+
+    .mobile-skill {
+      width: clamp(54px, 11vmin, 76px);
+      aspect-ratio: 1 / 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      border-radius: 50%;
+      border: 1.5px solid rgba(153, 255, 195, 0.45);
+      background:
+        radial-gradient(
+          circle at 38% 30%,
+          rgba(208, 255, 226, 0.2),
+          rgba(8, 28, 25, 0.42) 60%,
+          rgba(4, 14, 17, 0.7) 100%
+        );
+      color: #dcffe9;
+      font-family: inherit;
+      font-size: clamp(12px, 2.05vmin, 16px);
+      font-weight: 900;
+      letter-spacing: 0.06em;
+      line-height: 1;
+      text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6);
+      -webkit-appearance: none;
+      appearance: none;
+      -webkit-touch-callout: none;
+      box-shadow:
+        0 8px 24px rgba(0, 0, 0, 0.42),
+        inset 0 0 18px rgba(102, 255, 166, 0.1);
+      backdrop-filter: blur(3px);
+      -webkit-backdrop-filter: blur(3px);
+      touch-action: none;
+      outline: none;
+      cursor: pointer;
+      -webkit-user-select: none;
+      user-select: none;
+      transition: transform 0.08s ease, background 0.08s ease,
+        box-shadow 0.08s ease, border-color 0.08s ease;
+    }
+
+    .mobile-skill.ultimate {
+      border-color: rgba(255, 225, 142, 0.52);
+      color: #fff0ba;
+      background:
+        radial-gradient(
+          circle at 38% 30%,
+          rgba(255, 242, 186, 0.24),
+          rgba(42, 32, 8, 0.42) 60%,
+          rgba(16, 14, 8, 0.72) 100%
+        );
+      box-shadow:
+        0 8px 24px rgba(0, 0, 0, 0.42),
+        inset 0 0 18px rgba(255, 219, 115, 0.12);
+    }
+
+    .mobile-skill.dash {
+      border-color: rgba(144, 229, 255, 0.52);
+      color: #d8f7ff;
+      background:
+        radial-gradient(
+          circle at 38% 30%,
+          rgba(198, 247, 255, 0.22),
+          rgba(7, 32, 40, 0.42) 60%,
+          rgba(5, 17, 22, 0.72) 100%
+        );
+      box-shadow:
+        0 8px 24px rgba(0, 0, 0, 0.42),
+        inset 0 0 18px rgba(111, 224, 255, 0.12);
+    }
+
+    .mobile-skill.is-active {
+      transform: scale(0.9);
+      border-color: rgba(227, 255, 239, 0.9);
+      background:
+        radial-gradient(
+          circle at 50% 45%,
+          rgba(255, 255, 255, 0.34),
+          rgba(32, 108, 78, 0.68) 100%
+        );
+      box-shadow:
+        0 3px 12px rgba(0, 0, 0, 0.5),
+        0 0 26px rgba(124, 255, 183, 0.25);
+    }
+
+    .mobile-skill.ultimate.is-active {
+      background:
+        radial-gradient(
+          circle at 50% 45%,
+          rgba(255, 247, 203, 0.42),
+          rgba(114, 81, 17, 0.7) 100%
+        );
+      box-shadow:
+        0 3px 12px rgba(0, 0, 0, 0.5),
+        0 0 26px rgba(255, 224, 122, 0.3);
+    }
+
+    .mobile-skill.dash.is-active {
+      background:
+        radial-gradient(
+          circle at 50% 45%,
+          rgba(223, 251, 255, 0.42),
+          rgba(20, 91, 114, 0.7) 100%
+        );
+      box-shadow:
+        0 3px 12px rgba(0, 0, 0, 0.5),
+        0 0 26px rgba(116, 226, 255, 0.3);
+    }
+
+    .rotate-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 24px;
+      text-align: center;
+      background:
+        radial-gradient(
+          circle at 50% 38%,
+          rgba(38, 99, 70, 0.3),
+          transparent 54%
+        ),
+        linear-gradient(145deg, #030a0d, #061511 52%, #02070a);
+      color: #ecfff3;
+      touch-action: none;
+    }
+
+    .touch-device.is-portrait .rotate-overlay {
+      display: flex;
+    }
+
+    .rotate-phone {
+      position: relative;
+      width: 46px;
+      height: 82px;
+      margin-bottom: 28px;
+      border: 3px solid rgba(159, 255, 200, 0.9);
+      border-radius: 11px;
+      box-shadow:
+        0 0 0 1px rgba(1, 8, 7, 0.8),
+        0 0 28px rgba(102, 255, 164, 0.3);
+      animation: rotateHint 2.35s ease-in-out infinite;
+    }
+
+    .rotate-phone::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: 6px;
+      width: 14px;
+      height: 3px;
+      border-radius: 2px;
+      background: rgba(191, 255, 216, 0.8);
+      transform: translateX(-50%);
+    }
+
+    .rotate-phone::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 6px;
+      width: 10px;
+      height: 2px;
+      border-radius: 2px;
+      background: rgba(191, 255, 216, 0.5);
+      transform: translateX(-50%);
+    }
+
+    .rotate-overlay h1 {
+      margin: 0;
+      font-size: clamp(23px, 5.2vw, 36px);
+      font-weight: 900;
+      letter-spacing: 0.03em;
+      color: #eafff0;
+      text-shadow: 0 2px 26px rgba(95, 255, 159, 0.24);
+    }
+
+    .rotate-overlay p {
+      margin: 4px 0 0;
+      font-size: clamp(12px, 2.8vw, 16px);
+      color: rgba(186, 237, 205, 0.62);
+      letter-spacing: 0.04em;
+    }
+
+    @keyframes rotateHint {
+      0%,
+      22% {
+        transform: rotate(0deg);
+      }
+      62%,
+      100% {
+        transform: rotate(90deg);
+      }
+    }
+
     @media (max-aspect-ratio: 4 / 5) {
       body {
         padding: 1vh 1vw;
@@ -94,6 +444,24 @@
 
       .game-shell {
         width: 98vw;
+      }
+    }
+
+    @media (max-width: 900px), (pointer: coarse) {
+      body {
+        padding: 0;
+      }
+
+      .game-shell {
+        width: min(100vw, 177.7778vh);
+        width: min(100vw, 177.7778dvh);
+        max-width: none;
+        border-radius: 0;
+        border: none;
+      }
+
+      .game-shell::after {
+        border-radius: 0;
       }
     }
   </style>
@@ -104,9 +472,58 @@
       id="game"
       width="1280"
       height="720"
-      aria-label="奶蛙打僵尸：使用 WASD 或方向键移动，J 或数字 1 发射能量球。"
+      aria-label="奶蛙打僵尸：键盘使用 WASD 或方向键移动，J 或数字 1 发射能量球；触屏使用左侧摇杆和右侧技能按钮。"
     ></canvas>
+    <div class="mobile-controls" id="mobileControls" aria-label="触屏控制">
+      <div
+        class="joystick-zone"
+        id="joystickZone"
+        role="group"
+        aria-label="虚拟摇杆：控制移动和切换跑道"
+      >
+        <div class="joystick-base">
+          <span class="joy-arrow up" aria-hidden="true">▲</span>
+          <span class="joy-arrow down" aria-hidden="true">▼</span>
+          <span class="joy-arrow left" aria-hidden="true">◀</span>
+          <span class="joy-arrow right" aria-hidden="true">▶</span>
+          <div class="joystick-knob" id="joystickKnob"></div>
+        </div>
+        <span class="joystick-caption" aria-hidden="true">移动</span>
+      </div>
+      <div class="skill-pad" id="skillPad" aria-label="技能按钮">
+        <button
+          type="button"
+          class="mobile-skill attack"
+          data-code="KeyJ"
+          aria-label="普攻"
+        >
+          普攻
+        </button>
+        <button
+          type="button"
+          class="mobile-skill ultimate"
+          data-code="KeyK"
+          aria-label="大招"
+        >
+          大招
+        </button>
+        <button
+          type="button"
+          class="mobile-skill dash"
+          data-code="KeyL"
+          aria-label="闪身"
+        >
+          闪身
+        </button>
+      </div>
+    </div>
   </main>
+
+  <div class="rotate-overlay" id="rotateOverlay" role="alert" aria-live="assertive">
+    <div class="rotate-phone" aria-hidden="true"></div>
+    <h1>请旋转手机横屏游玩</h1>
+    <p>横屏后即可使用虚拟摇杆和技能按钮</p>
+  </div>
 
   <script>
     (() => {
@@ -117,6 +534,31 @@
       // ---------------------------------------------------------------------
       const canvas = document.getElementById("game");
       const ctx = canvas.getContext("2d");
+
+      const isTouchDevice =
+        navigator.maxTouchPoints > 0 ||
+        "ontouchstart" in window ||
+        window.matchMedia("(pointer: coarse)").matches;
+
+      function viewportIsPortrait() {
+        return window.matchMedia("(orientation: portrait)").matches;
+      }
+
+      function updateOrientationClasses() {
+        const portrait = viewportIsPortrait();
+        document.body.classList.toggle("touch-device", isTouchDevice);
+        document.body.classList.toggle(
+          "is-portrait",
+          isTouchDevice && portrait
+        );
+        document.body.classList.toggle(
+          "is-landscape",
+          isTouchDevice && !portrait
+        );
+        return portrait;
+      }
+
+      updateOrientationClasses();
 
       const W = 1280;
       const H = 720;
@@ -378,16 +820,42 @@
       }
 
       function resizeBackingStore() {
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        canvas.width = Math.round(W * dpr);
-        canvas.height = Math.round(H * dpr);
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const rect = canvas.getBoundingClientRect();
+        const cssWidth = Math.max(1, rect.width || W);
+        const cssHeight = Math.max(1, rect.height || H);
+        const dpr = Math.min(window.devicePixelRatio || 1, 3);
+
+        // 画布逻辑尺寸固定为 1280×720，按实际 CSS 尺寸和 DPR 放大
+        // backing store，既保持 16:9，又避免大屏/高 DPR 下发虚。
+        let renderScale = Math.min(
+          (cssWidth / W) * dpr,
+          (cssHeight / H) * dpr,
+          3840 / W,
+          2160 / H
+        );
+        renderScale = Math.max(1, renderScale);
+
+        const backingWidth = Math.round(W * renderScale);
+        const backingHeight = Math.round(H * renderScale);
+        canvas.width = backingWidth;
+        canvas.height = backingHeight;
+        ctx.setTransform(
+          backingWidth / W,
+          0,
+          0,
+          backingHeight / H,
+          0,
+          0
+        );
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
       }
 
       resizeBackingStore();
       window.addEventListener("resize", resizeBackingStore);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", resizeBackingStore);
+      }
 
       // ---------------------------------------------------------------------
       // 奶蛙素材
@@ -1030,6 +1498,37 @@
       let floaters = [];
       let downKeys = new Set();
 
+      let portraitAutoPaused = false;
+
+      function syncMobileLayout() {
+        const portrait = updateOrientationClasses();
+        if (!isTouchDevice) return;
+
+        if (portrait) {
+          releaseAllVirtualControls();
+          if (game.status === "playing" && !game.paused) {
+            game.paused = true;
+            portraitAutoPaused = true;
+            downKeys.clear();
+          }
+        } else if (portraitAutoPaused) {
+          portraitAutoPaused = false;
+          if (game.status === "playing") {
+            game.paused = false;
+          }
+        }
+      }
+
+      window.addEventListener("resize", () => {
+        requestAnimationFrame(syncMobileLayout);
+      });
+      window.addEventListener("orientationchange", () => {
+        setTimeout(() => {
+          resizeBackingStore();
+          syncMobileLayout();
+        }, 120);
+      });
+
       let lastTimestamp = 0;
       let sceneTime = 0;
 
@@ -1108,10 +1607,12 @@
       }
 
       function togglePause() {
+        if (isTouchDevice && viewportIsPortrait()) return;
         if (game.status !== "playing") return;
         if (game.levelIntroTimer > 0) return;
         game.paused = !game.paused;
         downKeys.clear();
+        releaseAllVirtualControls();
         if (!game.paused) {
           player.fireTimer = Math.max(player.fireTimer, 0.08);
         }
@@ -1235,6 +1736,238 @@
         canvas.style.cursor = pointInRect(point.x, point.y, restartButton)
           ? "pointer"
           : "default";
+      });
+
+      // ---------------------------------------------------------------------
+      // 移动端虚拟按键
+      // ---------------------------------------------------------------------
+      const VIRTUAL_KEY_META = {
+        KeyA: { key: "a" },
+        KeyD: { key: "d" },
+        KeyW: { key: "w" },
+        KeyS: { key: "s" },
+        KeyJ: { key: "j" },
+        KeyK: { key: "k" },
+        KeyL: { key: "l" },
+      };
+
+      function dispatchVirtualKey(type, code) {
+        const meta = VIRTUAL_KEY_META[code];
+        if (!meta) return;
+        window.dispatchEvent(
+          new KeyboardEvent(type, {
+            code,
+            key: meta.key,
+            bubbles: true,
+            cancelable: true,
+          })
+        );
+      }
+
+      const joystickZone = document.getElementById("joystickZone");
+      const joystickKnob = document.getElementById("joystickKnob");
+      const skillButtons = Array.from(
+        document.querySelectorAll(".mobile-skill")
+      );
+      const skillStates = skillButtons.map((button) => ({
+        button,
+        code: button.dataset.code,
+        touches: new Set(),
+      }));
+      const activeSkillButtons = new Set();
+
+      let joystickTouchId = null;
+      let joystickHorizontal = 0;
+      let joystickVertical = 0;
+
+      function setJoystickHorizontal(direction) {
+        if (direction === joystickHorizontal) return;
+        if (joystickHorizontal === -1) {
+          dispatchVirtualKey("keyup", "KeyA");
+        }
+        if (joystickHorizontal === 1) {
+          dispatchVirtualKey("keyup", "KeyD");
+        }
+        joystickHorizontal = direction;
+        if (direction === -1) {
+          dispatchVirtualKey("keydown", "KeyA");
+        }
+        if (direction === 1) {
+          dispatchVirtualKey("keydown", "KeyD");
+        }
+      }
+
+      function setJoystickVertical(direction) {
+        if (direction === joystickVertical) return;
+        if (direction !== 0) {
+          const code = direction < 0 ? "KeyW" : "KeyS";
+          dispatchVirtualKey("keydown", code);
+          dispatchVirtualKey("keyup", code);
+        }
+        joystickVertical = direction;
+      }
+
+      function updateJoystickFromTouch(touch) {
+        const rect = joystickZone.getBoundingClientRect();
+        if (rect.width <= 0) return;
+
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const maxRadius = rect.width * 0.31;
+        let dx = touch.clientX - centerX;
+        let dy = touch.clientY - centerY;
+        const distance = Math.hypot(dx, dy);
+        if (distance > maxRadius) {
+          const scale = maxRadius / distance;
+          dx *= scale;
+          dy *= scale;
+        }
+
+        joystickKnob.style.transform =
+          `translate(-50%, -50%) translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px)`;
+
+        const threshold = Math.max(12, rect.width * 0.16);
+        const horizontal = dx < -threshold ? -1 : dx > threshold ? 1 : 0;
+        const vertical = dy < -threshold ? -1 : dy > threshold ? 1 : 0;
+        setJoystickHorizontal(horizontal);
+        setJoystickVertical(vertical);
+      }
+
+      function resetJoystick() {
+        joystickTouchId = null;
+        joystickZone.classList.remove("is-active");
+        joystickKnob.style.transform = "translate(-50%, -50%)";
+        setJoystickHorizontal(0);
+        setJoystickVertical(0);
+      }
+
+      function releaseSkillState(state) {
+        state.touches.clear();
+        if (state.button.classList.contains("is-active")) {
+          state.button.classList.remove("is-active");
+          dispatchVirtualKey("keyup", state.code);
+        }
+        activeSkillButtons.delete(state.button);
+      }
+
+      function releaseAllVirtualControls() {
+        resetJoystick();
+        for (const state of skillStates) {
+          releaseSkillState(state);
+        }
+      }
+
+      joystickZone.addEventListener(
+        "touchstart",
+        (event) => {
+          if (joystickTouchId !== null) return;
+          const touch = event.changedTouches[0];
+          if (!touch) return;
+          event.preventDefault();
+          ensureAudio();
+          joystickTouchId = touch.identifier;
+          joystickZone.classList.add("is-active");
+          updateJoystickFromTouch(touch);
+        },
+        { passive: false }
+      );
+
+      document.addEventListener(
+        "touchmove",
+        (event) => {
+          if (joystickTouchId === null) return;
+          for (const touch of event.changedTouches) {
+            if (touch.identifier === joystickTouchId) {
+              event.preventDefault();
+              updateJoystickFromTouch(touch);
+              break;
+            }
+          }
+        },
+        { passive: false }
+      );
+
+      function handleJoystickTouchEnd(event) {
+        if (joystickTouchId === null) return;
+        for (const touch of event.changedTouches) {
+          if (touch.identifier === joystickTouchId) {
+            event.preventDefault();
+            resetJoystick();
+            break;
+          }
+        }
+      }
+
+      document.addEventListener("touchend", handleJoystickTouchEnd, {
+        passive: false,
+      });
+      document.addEventListener("touchcancel", handleJoystickTouchEnd, {
+        passive: false,
+      });
+
+      function releaseOnAllTouchesEnded(event) {
+        if (event.touches.length === 0) {
+          releaseAllVirtualControls();
+        }
+      }
+
+      document.addEventListener("touchend", releaseOnAllTouchesEnded, {
+        passive: false,
+      });
+      document.addEventListener("touchcancel", releaseOnAllTouchesEnded, {
+        passive: false,
+      });
+
+      for (const state of skillStates) {
+        state.button.addEventListener(
+          "touchstart",
+          (event) => {
+            event.preventDefault();
+            ensureAudio();
+            let becameActive = false;
+            for (const touch of event.changedTouches) {
+              if (state.touches.has(touch.identifier)) continue;
+              state.touches.add(touch.identifier);
+              if (!state.button.classList.contains("is-active")) {
+                state.button.classList.add("is-active");
+                activeSkillButtons.add(state.button);
+                becameActive = true;
+              }
+            }
+            if (becameActive) {
+              dispatchVirtualKey("keydown", state.code);
+            }
+          },
+          { passive: false }
+        );
+
+        const endHandler = (event) => {
+          let removed = false;
+          for (const touch of event.changedTouches) {
+            if (state.touches.delete(touch.identifier)) {
+              removed = true;
+            }
+          }
+          if (removed && state.touches.size === 0) {
+            state.button.classList.remove("is-active");
+            activeSkillButtons.delete(state.button);
+            dispatchVirtualKey("keyup", state.code);
+          }
+        };
+
+        state.button.addEventListener("touchend", endHandler);
+        state.button.addEventListener("touchcancel", endHandler);
+        state.button.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+        });
+        state.button.addEventListener("click", (event) => {
+          event.preventDefault();
+        });
+      }
+
+      window.addEventListener("blur", releaseAllVirtualControls);
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) releaseAllVirtualControls();
       });
 
       // ---------------------------------------------------------------------
@@ -1409,6 +2142,7 @@
         canvas.style.cursor = "default";
 
         startLevel(1, { initial: true });
+        syncMobileLayout();
       }
 
       // ---------------------------------------------------------------------
@@ -4751,7 +5485,9 @@
 
         // 操作提示
         drawText(
-          "WASD / 方向键 移动   ·   J / 1 射击   ·   K / 2 大招   ·   L / 3 闪身   ·   P 暂停",
+          isTouchDevice
+            ? "左侧摇杆移动 / 换道   ·   右侧按钮 普攻 / 大招 / 闪身"
+            : "WASD / 方向键 移动   ·   J / 1 射击   ·   K / 2 大招   ·   L / 3 闪身   ·   P 暂停",
           W / 2,
           107,
           {
@@ -5022,12 +5758,19 @@
           ctx.shadowBlur = 0;
         }
 
-        drawText("M 静音 · 血包 +1 · P 暂停 · R 重开", 1244, 692, {
-          size: 9,
-          weight: 600,
-          color: "rgba(171, 225, 192, 0.4)",
-          align: "right",
-        });
+        drawText(
+          isTouchDevice
+            ? "触屏：左侧摇杆 · 右侧技能 · 右上角静音"
+            : "M 静音 · 血包 +1 · P 暂停 · R 重开",
+          1244,
+          692,
+          {
+            size: 9,
+            weight: 600,
+            color: "rgba(171, 225, 192, 0.4)",
+            align: "right",
+          }
+        );
       }
 
       function drawFooter() {
@@ -5078,7 +5821,13 @@
         ctx.beginPath();
         ctx.arc(x + 22, y + 18, 3, 0, TAU);
         ctx.fill();
-        drawText("普攻命中充能，满 10 点按 K / 2 放大招！", x + width / 2 + 8, y + 23, {
+        drawText(
+          isTouchDevice
+            ? "普攻命中充能，满 10 点点击「大招」！"
+            : "普攻命中充能，满 10 点按 K / 2 放大招！",
+          x + width / 2 + 8,
+          y + 23,
+          {
           size: 11,
           weight: 700,
           color: "rgba(232, 255, 230, 0.84)",
@@ -5224,12 +5973,17 @@
           "rgba(148, 255, 185, 0.25)",
           1
         );
-        drawText("按 P 或点击继续", W / 2, cardY + 145, {
-          size: 11,
-          weight: 700,
-          color: "rgba(220, 255, 229, 0.82)",
-          align: "center",
-        });
+        drawText(
+          isTouchDevice ? "点击屏幕继续" : "按 P 或点击继续",
+          W / 2,
+          cardY + 145,
+          {
+            size: 11,
+            weight: 700,
+            color: "rgba(220, 255, 229, 0.82)",
+            align: "center",
+          }
+        );
       }
 
       function drawGameOverOverlay() {
@@ -5384,7 +6138,7 @@
         ctx.shadowBlur = 0;
         ctx.font = `600 9px ${MONO_STACK}`;
         ctx.fillStyle = "rgba(208, 255, 222, 0.56)";
-        ctx.fillText("R / ENTER", 0, 13);
+        ctx.fillText(isTouchDevice ? "点击按钮重开" : "R / ENTER", 0, 13);
         ctx.restore();
 
         ctx.restore();
@@ -5673,15 +6427,22 @@
         ctx.shadowBlur = 0;
         ctx.font = `600 9px ${MONO_STACK}`;
         ctx.fillStyle = "rgba(255, 245, 205, 0.62)";
-        ctx.fillText("R / ENTER", 0, 13);
+        ctx.fillText(isTouchDevice ? "点击按钮重开" : "R / ENTER", 0, 13);
         ctx.restore();
 
-        drawText("点击按钮，或者按 R / Enter 再玩一次", W / 2, cardY + cardH - 24, {
-          size: 9.5,
-          weight: 600,
-          color: "rgba(202, 240, 210, 0.48)",
-          align: "center",
-        });
+        drawText(
+          isTouchDevice
+            ? "点击按钮再玩一次"
+            : "点击按钮，或者按 R / Enter 再玩一次",
+          W / 2,
+          cardY + cardH - 24,
+          {
+            size: 9.5,
+            weight: 600,
+            color: "rgba(202, 240, 210, 0.48)",
+            align: "center",
+          }
+        );
 
         ctx.restore();
       }
@@ -5982,6 +6743,7 @@
       };
 
       startLevel(1, { initial: true });
+      syncMobileLayout();
       requestAnimationFrame(frame);
     })();
   </script>
