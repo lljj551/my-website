@@ -490,3 +490,32 @@
   }
   .hero__fallback { margin-top: 14px; font-size: 10px; }
 }
+
+/* —— 绽开白场闪光：由 hero.js 动态创建，不修改 HTML 结构 —— */
+.bloom-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+  background: #ffffff;
+  opacity: 0;
+  mix-blend-mode: screen;
+  will-change: opacity;
+}
+
+.bloom-flash.is-on {
+  animation: zrd-bloom-flash 460ms var(--ease-out) forwards;
+}
+
+@keyframes zrd-bloom-flash {
+  0% { opacity: 0; }
+  10% { opacity: 0.16; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bloom-flash.is-on {
+    animation: none;
+    opacity: 0;
+  }
+}

@@ -24,6 +24,271 @@
   var booted = false;
   var gameWasRunning = false;
 
+  /* ---------------------------------------------------------------- 声音
+     Web Audio 程序化合成，无外链音频文件。
+     首次点击 / 滚动 / 触摸时创建 AudioContext；后续每次调用都会尝试 resume。
+     ------------------------------------------------------------------ */
+
+  var audioCtx = null;
+  var audioMaster = null;
+  var audioNoise = null;
+  var audioUnlockBound = false;
+
+  function makeAudioContext() {
+    var AC = global.AudioContext || global.webkitAudioContext;
+    if (!AC) return null;
+
+    if (!audioCtx) {
+      try {
+        audioCtx = new AC();
+        audioMaster = audioCtx.createGain();
+        audioMaster.gain.value = 0.22;
+
+        var comp = audioCtx.createDynamicsCompressor();
+        comp.threshold.value = -18;
+        comp.knee.value = 18;
+        comp.ratio.value = 4;
+        comp.attack.value = 0.003;
+        comp.release.value = 0.25;
+
+        audioMaster.connect(comp);
+        comp.connect(audioCtx.destination);
+      } catch (e) {
+        audioCtx = null;
+        audioMaster = null;
+        return null;
+      }
+    }
+
+    if (audioCtx.state === 'suspended') {
+      try {
+        var resumed = audioCtx.resume();
+        if (resumed && resumed.catch) resumed.catch(function () {});
+      } catch (e) {
+        /* 自动播放策略下可能仍保持 suspended，静默降级 */
+      }
+    }
+
+    return audioCtx;
+  }
+
+  function audioTime(ctx) {
+    return ctx.currentTime + 0.005;
+  }
+
+  function getNoiseBuffer(ctx) {
+    if (audioNoise) return audioNoise;
+    var length = Math.floor(ctx.sampleRate * 0.3);
+    audioNoise = ctx.createBuffer(1, length, ctx.sampleRate);
+    var data = audioNoise.getChannelData(0);
+    for (var i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+    return audioNoise;
+  }
+
+  /** 高频风铃 / 能量扩散：多个振荡器 + 高→低扫频 + 气声 */
+  function playBloomSound() {
+    var ctx = makeAudioContext();
+    if (!ctx || !audioMaster) return;
+
+    var t0 = audioTime(ctx);
+    var bus = ctx.createGain();
+    bus.gain.value = 0.9;
+    bus.connect(audioMaster);
+
+    var chimes = [2093, 2637, 3136, 4186];
+    for (var i = 0; i < chimes.length; i++) {
+      var start = t0 + i * 0.018;
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      var pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+
+      osc.type = i % 2 === 0 ? 'sine' : 'triangle';
+      osc.frequency.setValueAtTime(chimes[i], start);
+      osc.frequency.exponentialRampToValueAtTime(chimes[i] * 0.42, start + 0.62);
+
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(0.13 / (1 + i * 0.35), start + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.7 + i * 0.08);
+
+      if (pan) {
+        pan.pan.value = (i / (chimes.length - 1)) * 1.2 - 0.6;
+        osc.connect(gain);
+        gain.connect(pan);
+        pan.connect(bus);
+      } else {
+        osc.connect(gain);
+        gain.connect(bus);
+      }
+
+      osc.start(start);
+      osc.stop(start + 0.95 + i * 0.08);
+    }
+
+    var noise = ctx.createBufferSource();
+    noise.buffer = getNoiseBuffer(ctx);
+    var band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = 1.1;
+    band.frequency.setValueAtTime(4200, t0);
+    band.frequency.exponentialRampToValueAtTime(900, t0 + 0.7);
+
+    var noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(0.0001, t0);
+    noiseGain.gain.exponentialRampToValueAtTime(0.055, t0 + 0.04);
+    noiseGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.75);
+
+    noise.connect(band);
+    band.connect(noiseGain);
+    noiseGain.connect(bus);
+    noise.start(t0);
+    noise.stop(t0 + 0.8);
+
+    var sub = ctx.createOscillator();
+    var subGain = ctx.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(180, t0);
+    sub.frequency.exponentialRampToValueAtTime(90, t0 + 0.55);
+    subGain.gain.setValueAtTime(0.0001, t0);
+    subGain.gain.exponentialRampToValueAtTime(0.09, t0 + 0.035);
+    subGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.85);
+    sub.connect(subGain);
+    subGain.connect(bus);
+    sub.start(t0);
+    sub.stop(t0 + 0.9);
+  }
+
+  /** 枪声：白噪声 + 低通扫频 + 极短包络 + 低频枪身 */
+  function playShotSound() {
+    var ctx = makeAudioContext();
+    if (!ctx || !audioMaster) return;
+
+    var t = audioTime(ctx);
+
+    var noise = ctx.createBufferSource();
+    noise.buffer = getNoiseBuffer(ctx);
+    noise.playbackRate.value = 0.9 + Math.random() * 0.2;
+
+    var lowpass = ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.Q.value = 0.7;
+    lowpass.frequency.setValueAtTime(2400, t);
+    lowpass.frequency.exponentialRampToValueAtTime(300, t + 0.09);
+
+    var gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.62, t + 0.003);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
+
+    noise.connect(lowpass);
+    lowpass.connect(gain);
+    gain.connect(audioMaster);
+    noise.start(t);
+    noise.stop(t + 0.16);
+
+    var body = ctx.createOscillator();
+    var bodyGain = ctx.createGain();
+    body.type = 'sine';
+    body.frequency.setValueAtTime(150, t);
+    body.frequency.exponentialRampToValueAtTime(55, t + 0.1);
+    bodyGain.gain.setValueAtTime(0.0001, t);
+    bodyGain.gain.exponentialRampToValueAtTime(0.2, t + 0.004);
+    bodyGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    body.connect(bodyGain);
+    bodyGain.connect(audioMaster);
+    body.start(t);
+    body.stop(t + 0.14);
+  }
+
+  /** 命中悍匪：高频短促的“叮” */
+  function playHitSound() {
+    var ctx = makeAudioContext();
+    if (!ctx || !audioMaster) return;
+
+    var t = audioTime(ctx);
+    var freqs = [1760, 2637, 3520];
+
+    for (var i = 0; i < freqs.length; i++) {
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = i === 1 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(freqs[i], t + i * 0.008);
+      osc.frequency.exponentialRampToValueAtTime(freqs[i] * 0.99, t + 0.18);
+
+      gain.gain.setValueAtTime(0.0001, t + i * 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.2 / (i + 1), t + i * 0.008 + 0.004);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.2 + i * 0.03);
+
+      osc.connect(gain);
+      gain.connect(audioMaster);
+      osc.start(t + i * 0.008);
+      osc.stop(t + 0.25 + i * 0.03);
+    }
+  }
+
+  /** 误伤人质：低频沉闷的“嗡” */
+  function playFailSound() {
+    var ctx = makeAudioContext();
+    if (!ctx || !audioMaster) return;
+
+    var t = audioTime(ctx);
+    var lowpass = ctx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.setValueAtTime(520, t);
+    lowpass.frequency.exponentialRampToValueAtTime(180, t + 0.7);
+    lowpass.Q.value = 0.9;
+    lowpass.connect(audioMaster);
+
+    var freqs = [110, 82];
+    for (var i = 0; i < freqs.length; i++) {
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = i === 0 ? 'sine' : 'triangle';
+      osc.frequency.setValueAtTime(freqs[i], t);
+      osc.frequency.exponentialRampToValueAtTime(freqs[i] * 0.45, t + 0.55);
+
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.2 / (i + 1), t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
+
+      osc.connect(gain);
+      gain.connect(lowpass);
+      osc.start(t);
+      osc.stop(t + 0.8);
+    }
+  }
+
+  function initAudioUnlock() {
+    if (audioUnlockBound) return;
+    audioUnlockBound = true;
+
+    var events = ['pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll'];
+    for (var i = 0; i < events.length; i++) {
+      global.addEventListener(events[i], makeAudioContext, { passive: true, capture: true });
+    }
+
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden && audioCtx && audioCtx.state === 'running') {
+        try {
+          var paused = audioCtx.suspend();
+          if (paused && paused.catch) paused.catch(function () {});
+        } catch (e) {
+          /* 忽略 */
+        }
+      }
+    });
+  }
+
+  ZRD.audio = {
+    ensure: makeAudioContext,
+    bloom: playBloomSound,
+    shot: playShotSound,
+    hit: playHitSound,
+    fail: playFailSound,
+    get state() {
+      return audioCtx ? audioCtx.state : 'uninitialized';
+    }
+  };
+
   /* ---------------------------------------------------------------- 环境 */
 
   function webglOK() {
@@ -187,6 +452,10 @@
     var year = util.el('#year');
     if (year) year.textContent = String(new Date().getFullYear());
 
+    // 声音系统已接入，更新控制台底栏的旧文案（只改文本，不改结构）
+    var audioLabel = util.el('.console__foot span:last-child');
+    if (audioLabel) audioLabel.textContent = 'AUDIO · WEB AUDIO';
+
     // 数据层不可用（隐私模式）时提示一次
     if (!ZRD.store.available) {
       note('浏览器禁用了 localStorage：评分与本地记录仅在本次会话内有效。', 6000);
@@ -252,6 +521,7 @@
     booted = true;
 
     initNote();
+    initAudioUnlock();
     checkEnv();
 
     if (!ZRD.game || !ZRD.results || !ZRD.hero) {

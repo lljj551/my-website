@@ -295,9 +295,29 @@
 
   /* ---------------------------------------------------------------- 绽放 */
 
+  /** 绽开瞬间的白场闪光：动态插入节点，不改动 HTML 结构 */
+  function flashBloom() {
+    if (util.prefersReducedMotion()) return;
+
+    var flash = document.querySelector('.bloom-flash');
+    if (!flash) {
+      flash = document.createElement('div');
+      flash.className = 'bloom-flash';
+      flash.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(flash);
+    }
+
+    flash.classList.remove('is-on');
+    void flash.offsetWidth;
+    flash.classList.add('is-on');
+  }
+
   function beginBloom(source) {
     if (revealed) return Promise.resolve();
     if (bloomPromise) return bloomPromise;
+
+    if (ZRD.audio && ZRD.audio.bloom) ZRD.audio.bloom();
+    flashBloom();
 
     setPhase('blooming');
     setCopy(COPY.blooming.prompt, COPY.blooming.sub);

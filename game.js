@@ -42,7 +42,12 @@
 
   var mouse = { x: 0, y: 0, inside: false };
   var flash = null;
-  var recoil = 0;
+  var floaters = [];
+  var aimScale = 1;
+  var aimTarget = 1;
+  var shakeUntil = 0;
+  var shakeX = 0;
+  var shakeY = 0;
 
   var seq = 0;
   var resizeObserver = null;
@@ -113,11 +118,28 @@
       mouse.y = p.y;
       mouse.inside = true;
       e.preventDefault();
+
+      // 鼠标按下：准星瞬间向内收；松开后回弹
+      aimTarget = 0.62;
+      aimScale = Math.min(aimScale, 0.76);
+
       shoot(p.x, p.y, util.now());
     });
 
     util.on(dom.field, 'contextmenu', function (e) {
       e.preventDefault();
+    });
+
+    util.on(global, 'pointerup', function () {
+      aimTarget = 1;
+    });
+
+    util.on(global, 'pointercancel', function () {
+      aimTarget = 1;
+    });
+
+    util.on(global, 'blur', function () {
+      aimTarget = 1;
     });
 
     util.on(global, 'resize', resize);
@@ -238,10 +260,13 @@
     } else if (state === 'running') {
       updateTargets(now);
       updateParticles(dt);
+      updateFloaters(dt);
       maybeAdvanceRound(now);
     }
 
-    recoil = Math.max(0, recoil - dt * 9);
+    var aimSpeed = aimTarget < aimScale ? 36 : 16;
+    aimScale += (aimTarget - aimScale) * Math.min(1, dt * aimSpeed);
+
     draw(now);
   }
 
@@ -374,8 +399,17 @@
       p.y += p.vy * dt;
       p.vx *= 0.93;
       p.vy *= 0.93;
+      if (p.spin) p.angle += p.spin * dt;
       p.life -= dt;
       if (p.life <= 0) particles.splice(i, 1);
+    }
+  }
+
+  function updateFloaters(dt) {
+    for (var i = floaters.length - 1; i >= 0; i--) {
+      var f = floaters[i];
+      f.life += dt;
+      if (f.life >= f.maxLife) floaters.splice(i, 1);
     }
   }
 
@@ -385,7 +419,9 @@
     if (state !== 'running') return;
 
     stats.shots += 1;
-    recoil = 1;
+    if (ZRD.audio && ZRD.audio.shot) ZRD.audio.shot();
+    triggerShake(now);
+
     flash = {
       x: x,
       y: y,
@@ -412,13 +448,16 @@
 
       if (hit.type === 'hostage') {
         stats.hostageHits += 1;
+        if (ZRD.audio && ZRD.audio.fail) ZRD.audio.fail();
         renderHud();
         finishGame('fail');
         return;
       }
 
       stats.hits += 1;
+      if (ZRD.audio && ZRD.audio.hit) ZRD.audio.hit();
       spawnHitParticles(hit.x, hit.y);
+      spawnFloater(hit.x, hit.y);
       renderHud();
       ZRD.bus.emit('game:hit', { type: 'gangster', hits: stats.hits, shots: stats.shots });
       return;
@@ -428,19 +467,58 @@
     ZRD.bus.emit('game:miss', { x: x, y: y, shots: stats.shots });
   }
 
+  function triggerShake(now) {
+    shakeUntil = now + 50;
+    var angle = Math.random() * Math.PI * 2;
+    var amp = util.rand(2, 3);
+    shakeX = Math.cos(angle) * amp;
+    shakeY = Math.sin(angle) * amp;
+  }
+
+  function spawnFloater(x, y) {
+    floaters.push({
+      x: x,
+      y: y - 4,
+      life: 0,
+      maxLife: 0.7
+    });
+  }
+
   function spawnHitParticles(x, y) {
     for (var i = 0; i < cfg.hitParticles; i++) {
       var angle = Math.random() * Math.PI * 2;
       var speed = util.rand(70, 260);
+      var life = util.rand(0.18, 0.42);
       particles.push({
+        kind: 'dot',
         x: x,
         y: y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
-        life: util.rand(0.18, 0.42),
-        maxLife: 0.42,
+        life: life,
+        maxLife: life,
         size: util.rand(1.2, 2.8),
         color: Math.random() < 0.45 ? '255,255,255' : '255,150,90'
+      });
+    }
+
+    // 少量带旋转的碎片，让爆炸更像“炸开”而不是一团点
+    for (var j = 0; j < 10; j++) {
+      var shardAngle = Math.random() * Math.PI * 2;
+      var shardSpeed = util.rand(90, 300);
+      var shardLife = util.rand(0.22, 0.5);
+      particles.push({
+        kind: 'shard',
+        x: x,
+        y: y,
+        vx: Math.cos(shardAngle) * shardSpeed,
+        vy: Math.sin(shardAngle) * shardSpeed - 35,
+        angle: Math.random() * Math.PI * 2,
+        spin: util.rand(-14, 14),
+        life: shardLife,
+        maxLife: shardLife,
+        size: util.rand(3, 6.5),
+        color: j % 3 === 0 ? '201,242,77' : '255,180,120'
       });
     }
   }
@@ -489,12 +567,17 @@
     stats = createStats();
     targets = [];
     particles = [];
+    floaters = [];
     roundIndex = 0;
     nextRoundAt = 0;
     countdownEndsAt = 0;
     banner = null;
     flash = null;
-    recoil = 0;
+    aimScale = 1;
+    aimTarget = 1;
+    shakeUntil = 0;
+    shakeX = 0;
+    shakeY = 0;
   }
 
   function reset() {
@@ -540,6 +623,7 @@
     if (nextRoundAt) nextRoundAt += delta;
     if (flash) flash.until += delta;
     if (banner) banner.until += delta;
+    if (shakeUntil) shakeUntil += delta;
 
     state = pausedFrom;
     pausedAt = 0;
@@ -588,11 +672,17 @@
     if (!ctx) return;
     ctx.clearRect(0, 0, cssW, cssH);
 
+    ctx.save();
+    if (now < shakeUntil) ctx.translate(shakeX, shakeY);
+
     drawBanner(now);
     drawTargets(now);
     drawParticles();
+    drawFloaters();
     drawMuzzle(now);
     drawCrosshair();
+
+    ctx.restore();
   }
 
   function drawBanner(now) {
@@ -738,10 +828,42 @@
     for (var i = 0; i < particles.length; i++) {
       var p = particles[i];
       var alpha = util.clamp(p.life / p.maxLife, 0, 1);
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(' + p.color + ',' + alpha.toFixed(3) + ')';
-      ctx.fill();
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+
+      if (p.kind === 'shard') {
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.angle || 0);
+        ctx.fillStyle = 'rgba(' + p.color + ',1)';
+        ctx.fillRect(-p.size / 2, -p.size * 0.16, p.size, p.size * 0.32);
+      } else {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(' + p.color + ',1)';
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+  }
+
+  function drawFloaters() {
+    for (var i = 0; i < floaters.length; i++) {
+      var f = floaters[i];
+      var progress = util.clamp(f.life / f.maxLife, 0, 1);
+      var alpha = 1 - progress;
+
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = '#9dff72';
+      ctx.font = '700 22px "Chakra Petch", "Noto Sans SC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = 'rgba(120, 255, 120, 0.55)';
+      ctx.shadowBlur = 10;
+      ctx.fillText('+1', f.x, f.y - progress * 38);
+      ctx.restore();
     }
   }
 
@@ -776,7 +898,7 @@
     if (!mouse.inside) return;
     if (state !== 'running' && state !== 'countdown') return;
 
-    var base = 14 + recoil * 9;
+    var base = 16 * aimScale;
 
     ctx.save();
     ctx.translate(mouse.x, mouse.y);
