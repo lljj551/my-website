@@ -98,12 +98,20 @@
       touch-action: none;
     }
 
-    .touch-device.is-landscape .mobile-controls {
-      display: block;
+    .touch-device .mobile-controls {
+      display: none;
     }
 
-    .touch-device.is-portrait .mobile-controls {
-      display: none !important;
+    @media (orientation: landscape) {
+      .touch-device .mobile-controls {
+        display: block;
+      }
+    }
+
+    @media (orientation: portrait) {
+      .touch-device .mobile-controls {
+        display: none !important;
+      }
     }
 
     .joystick-zone {
@@ -369,8 +377,16 @@
       touch-action: none;
     }
 
-    .touch-device.is-portrait .rotate-overlay {
-      display: flex;
+    @media (orientation: portrait) {
+      .touch-device .rotate-overlay {
+        display: flex;
+      }
+    }
+
+    @media (orientation: landscape) {
+      .rotate-overlay {
+        display: none !important;
+      }
     }
 
     .rotate-phone {
@@ -534,14 +550,27 @@
       // ---------------------------------------------------------------------
       const canvas = document.getElementById("game");
       const ctx = canvas.getContext("2d");
+      const rotateOverlay = document.getElementById("rotateOverlay");
 
       const isTouchDevice =
         navigator.maxTouchPoints > 0 ||
         "ontouchstart" in window ||
         window.matchMedia("(pointer: coarse)").matches;
 
+      // 这里只作为 JS 状态和暂停逻辑的参考；提示层和虚拟按键的
+      // 显示/隐藏完全交给 CSS 的 orientation 媒体查询，避免地址栏
+      // 引起的宽高计算偏差，也避免横屏后 class 没有及时更新。
+      const portraitMedia = window.matchMedia("(orientation: portrait)");
+
       function viewportIsPortrait() {
-        return window.matchMedia("(orientation: portrait)").matches;
+        return portraitMedia.matches;
+      }
+
+      function isRotateOverlayVisible() {
+        return (
+          rotateOverlay &&
+          window.getComputedStyle(rotateOverlay).display !== "none"
+        );
       }
 
       function updateOrientationClasses() {
@@ -852,9 +881,11 @@
       }
 
       resizeBackingStore();
-      window.addEventListener("resize", resizeBackingStore);
       if (window.visualViewport) {
-        window.visualViewport.addEventListener("resize", resizeBackingStore);
+        window.visualViewport.addEventListener("resize", () => {
+          resizeBackingStore();
+          requestAnimationFrame(syncMobileLayout);
+        });
       }
 
       // ---------------------------------------------------------------------
@@ -1501,10 +1532,13 @@
       let portraitAutoPaused = false;
 
       function syncMobileLayout() {
-        const portrait = updateOrientationClasses();
+        updateOrientationClasses();
         if (!isTouchDevice) return;
 
-        if (portrait) {
+        // 以 CSS 实际渲染出来的提示层状态为准；这样只要横屏媒体
+        // 查询生效、提示层被隐藏，游戏就一定会恢复，不会卡在暂停。
+        const overlayVisible = isRotateOverlayVisible();
+        if (overlayVisible) {
           releaseAllVirtualControls();
           if (game.status === "playing" && !game.paused) {
             game.paused = true;
@@ -1519,15 +1553,30 @@
         }
       }
 
+      function refreshViewportLayout() {
+        resizeBackingStore();
+        syncMobileLayout();
+      }
+
+      function handleOrientationChange() {
+        refreshViewportLayout();
+        requestAnimationFrame(refreshViewportLayout);
+        setTimeout(refreshViewportLayout, 120);
+        setTimeout(refreshViewportLayout, 360);
+        setTimeout(refreshViewportLayout, 800);
+      }
+
       window.addEventListener("resize", () => {
-        requestAnimationFrame(syncMobileLayout);
+        resizeBackingStore();
+        requestAnimationFrame(refreshViewportLayout);
       });
-      window.addEventListener("orientationchange", () => {
-        setTimeout(() => {
-          resizeBackingStore();
-          syncMobileLayout();
-        }, 120);
-      });
+      window.addEventListener("orientationchange", handleOrientationChange);
+
+      if (portraitMedia.addEventListener) {
+        portraitMedia.addEventListener("change", handleOrientationChange);
+      } else if (portraitMedia.addListener) {
+        portraitMedia.addListener(handleOrientationChange);
+      }
 
       let lastTimestamp = 0;
       let sceneTime = 0;
@@ -1607,7 +1656,7 @@
       }
 
       function togglePause() {
-        if (isTouchDevice && viewportIsPortrait()) return;
+        if (isTouchDevice && isRotateOverlayVisible()) return;
         if (game.status !== "playing") return;
         if (game.levelIntroTimer > 0) return;
         game.paused = !game.paused;
