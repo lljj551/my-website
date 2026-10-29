@@ -102,15 +102,9 @@
       display: none;
     }
 
-    @media (orientation: landscape) {
+    @media (orientation: landscape), (min-aspect-ratio: 1 / 1) {
       .touch-device .mobile-controls {
         display: block;
-      }
-    }
-
-    @media (orientation: portrait) {
-      .touch-device .mobile-controls {
-        display: none !important;
       }
     }
 
@@ -377,15 +371,18 @@
       touch-action: none;
     }
 
-    @media (orientation: portrait) {
+    @media (orientation: portrait) and (max-aspect-ratio: 1 / 1) {
       .touch-device .rotate-overlay {
         display: flex;
       }
     }
 
-    @media (orientation: landscape) {
+    @media (orientation: landscape), (min-aspect-ratio: 1 / 1) {
       .rotate-overlay {
         display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
       }
     }
 
@@ -557,34 +554,64 @@
         "ontouchstart" in window ||
         window.matchMedia("(pointer: coarse)").matches;
 
-      // 这里只作为 JS 状态和暂停逻辑的参考；提示层和虚拟按键的
-      // 显示/隐藏完全交给 CSS 的 orientation 媒体查询，避免地址栏
-      // 引起的宽高计算偏差，也避免横屏后 class 没有及时更新。
+      // CSS 的 orientation 媒体查询负责基础显示；这里再加一层基于
+      // 视口宽高和 aspect-ratio 的兜底，专门处理某些手机/开发者工具
+      // 中 orientation 媒体查询更新不及时的情况。
       const portraitMedia = window.matchMedia("(orientation: portrait)");
+      const landscapeMedia = window.matchMedia("(orientation: landscape)");
+      const aspectMedia = window.matchMedia("(min-aspect-ratio: 1 / 1)");
 
-      function viewportIsPortrait() {
-        return portraitMedia.matches;
-      }
+      function isLandscapeViewport() {
+        const width =
+          window.innerWidth ||
+          document.documentElement.clientWidth ||
+          0;
+        const height =
+          window.innerHeight ||
+          document.documentElement.clientHeight ||
+          0;
+        if (width > 0 && height > 0 && width > height) {
+          return true;
+        }
 
-      function isRotateOverlayVisible() {
-        return (
-          rotateOverlay &&
-          window.getComputedStyle(rotateOverlay).display !== "none"
-        );
+        const visual = window.visualViewport;
+        if (visual && visual.width > visual.height) {
+          return true;
+        }
+
+        // 某些 WebView / 手机浏览器旋转后布局视口更新滞后，
+        // 但物理屏幕方向已经变化，这里再补一层兜底。
+        if (isTouchDevice) {
+          if (
+            screen.orientation &&
+            typeof screen.orientation.type === "string" &&
+            screen.orientation.type.indexOf("landscape") !== -1
+          ) {
+            return true;
+          }
+          if (
+            typeof window.orientation === "number" &&
+            Math.abs(window.orientation) === 90
+          ) {
+            return true;
+          }
+        }
+
+        return aspectMedia.matches || landscapeMedia.matches;
       }
 
       function updateOrientationClasses() {
-        const portrait = viewportIsPortrait();
+        const landscape = isLandscapeViewport();
         document.body.classList.toggle("touch-device", isTouchDevice);
         document.body.classList.toggle(
           "is-portrait",
-          isTouchDevice && portrait
+          isTouchDevice && !landscape
         );
         document.body.classList.toggle(
           "is-landscape",
-          isTouchDevice && !portrait
+          isTouchDevice && landscape
         );
-        return portrait;
+        return landscape;
       }
 
       updateOrientationClasses();
@@ -1531,14 +1558,34 @@
 
       let portraitAutoPaused = false;
 
+      function applyOrientationOverlay(landscape) {
+        if (!rotateOverlay) return;
+        if (landscape) {
+          rotateOverlay.style.setProperty("display", "none", "important");
+          rotateOverlay.style.setProperty("visibility", "hidden", "important");
+          rotateOverlay.style.setProperty("opacity", "0", "important");
+          rotateOverlay.style.setProperty(
+            "pointer-events",
+            "none",
+            "important"
+          );
+          rotateOverlay.setAttribute("aria-hidden", "true");
+        } else {
+          rotateOverlay.style.removeProperty("display");
+          rotateOverlay.style.removeProperty("visibility");
+          rotateOverlay.style.removeProperty("opacity");
+          rotateOverlay.style.removeProperty("pointer-events");
+          rotateOverlay.removeAttribute("aria-hidden");
+        }
+      }
+
       function syncMobileLayout() {
-        updateOrientationClasses();
+        const landscape = updateOrientationClasses();
+        applyOrientationOverlay(landscape);
+
         if (!isTouchDevice) return;
 
-        // 以 CSS 实际渲染出来的提示层状态为准；这样只要横屏媒体
-        // 查询生效、提示层被隐藏，游戏就一定会恢复，不会卡在暂停。
-        const overlayVisible = isRotateOverlayVisible();
-        if (overlayVisible) {
+        if (!landscape) {
           releaseAllVirtualControls();
           if (game.status === "playing" && !game.paused) {
             game.paused = true;
@@ -1574,9 +1621,42 @@
 
       if (portraitMedia.addEventListener) {
         portraitMedia.addEventListener("change", handleOrientationChange);
+        landscapeMedia.addEventListener("change", handleOrientationChange);
+        aspectMedia.addEventListener("change", handleOrientationChange);
       } else if (portraitMedia.addListener) {
         portraitMedia.addListener(handleOrientationChange);
+        landscapeMedia.addListener(handleOrientationChange);
+        aspectMedia.addListener(handleOrientationChange);
       }
+
+      if (screen.orientation && screen.orientation.addEventListener) {
+        screen.orientation.addEventListener("change", handleOrientationChange);
+      }
+
+      // 开发者工具或部分手机浏览器在旋转后不一定派发 resize /
+      // orientationchange。这里做一个极轻量的兜底检查：只有宽高或
+      // 横竖屏状态真正变化时才重设 Canvas，不会每 250ms 重绘。
+      let lastViewportSignature = "";
+      let lastLandscapeState = null;
+      function checkViewportFallback() {
+        const signature =
+          `${window.innerWidth}x${window.innerHeight}x` +
+          `${window.devicePixelRatio}`;
+        const landscape = isLandscapeViewport();
+        if (
+          signature !== lastViewportSignature ||
+          landscape !== lastLandscapeState
+        ) {
+          lastViewportSignature = signature;
+          lastLandscapeState = landscape;
+          refreshViewportLayout();
+        }
+      }
+      lastViewportSignature =
+        `${window.innerWidth}x${window.innerHeight}x` +
+        `${window.devicePixelRatio}`;
+      lastLandscapeState = isLandscapeViewport();
+      window.setInterval(checkViewportFallback, 250);
 
       let lastTimestamp = 0;
       let sceneTime = 0;
@@ -1656,7 +1736,7 @@
       }
 
       function togglePause() {
-        if (isTouchDevice && isRotateOverlayVisible()) return;
+        if (isTouchDevice && !isLandscapeViewport()) return;
         if (game.status !== "playing") return;
         if (game.levelIntroTimer > 0) return;
         game.paused = !game.paused;
