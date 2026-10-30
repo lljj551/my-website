@@ -3,6 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="game-version" content="20261030-forceenter1" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
   <title>奶蛙打僵尸 · 第一夜</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='34' r='25' fill='%238dffc0'/%3E%3Ccircle cx='23' cy='24' r='9' fill='%23fff9d7'/%3E%3Ccircle cx='41' cy='24' r='9' fill='%23fff9d7'/%3E%3Ccircle cx='24' cy='25' r='4' fill='%23213c30'/%3E%3Ccircle cx='40' cy='25' r='4' fill='%23213c30'/%3E%3Cpath d='M22 42 Q32 50 42 42' fill='none' stroke='%23213c30' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
   <style>
@@ -53,6 +57,26 @@
           transparent 4px
         );
       opacity: 0.55;
+    }
+
+    /* 微信内置浏览器：锁死页面，避免地址栏和 WebView 橡皮筋滚动 */
+    body.wechat-browser {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      touch-action: none;
+      -webkit-overflow-scrolling: auto;
+      -webkit-touch-callout: none;
+    }
+
+    body.wechat-browser .game-shell,
+    body.wechat-browser canvas,
+    body.wechat-browser .mobile-controls,
+    body.wechat-browser .joystick-zone,
+    body.wechat-browser .skill-pad {
+      touch-action: none;
     }
 
     .game-shell {
@@ -386,6 +410,26 @@
       }
     }
 
+    @media (orientation: landscape) {
+      .rotate-tip-class {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+    }
+
+    body.force-entered .rotate-tip-class {
+      display: none !important;
+      visibility: hidden !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+
+    body.force-entered .mobile-controls {
+      display: block !important;
+    }
+
     .rotate-phone {
       position: relative;
       width: 46px;
@@ -439,6 +483,37 @@
       letter-spacing: 0.04em;
     }
 
+    .force-enter-btn {
+      margin-top: 20px;
+      padding: 14px 30px;
+      border: 1.5px solid rgba(174, 255, 207, 0.7);
+      border-radius: 999px;
+      background:
+        linear-gradient(180deg, rgba(111, 255, 171, 0.3), rgba(24, 126, 83, 0.5)),
+        rgba(7, 25, 18, 0.86);
+      color: #f1fff5;
+      font-family: inherit;
+      font-size: clamp(16px, 4vw, 20px);
+      font-weight: 900;
+      letter-spacing: 0.04em;
+      text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+      box-shadow:
+        0 10px 28px rgba(0, 0, 0, 0.42),
+        0 0 26px rgba(96, 255, 161, 0.22),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      cursor: pointer;
+      touch-action: manipulation;
+      -webkit-appearance: none;
+      appearance: none;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 0.08s ease, filter 0.08s ease;
+    }
+
+    .force-enter-btn:active {
+      transform: scale(0.96);
+      filter: brightness(1.15);
+    }
+
     @keyframes rotateHint {
       0%,
       22% {
@@ -480,6 +555,11 @@
   </style>
 </head>
 <body>
+  <script>
+    if (/MicroMessenger/i.test(navigator.userAgent)) {
+      document.body.classList.add("wechat-browser");
+    }
+  </script>
   <main class="game-shell" aria-label="奶蛙打僵尸游戏">
     <canvas
       id="game"
@@ -532,10 +612,13 @@
     </div>
   </main>
 
-  <div class="rotate-overlay" id="rotateOverlay" role="alert" aria-live="assertive">
+  <div class="rotate-overlay rotate-tip-class" id="rotateOverlay" role="alert" aria-live="assertive">
     <div class="rotate-phone" aria-hidden="true"></div>
     <h1>请旋转手机横屏游玩</h1>
     <p>横屏后即可使用虚拟摇杆和技能按钮</p>
+    <button type="button" class="force-enter-btn" id="forceEnterBtn">
+      [ 强制进入游戏 ]
+    </button>
   </div>
 
   <script>
@@ -548,73 +631,23 @@
       const canvas = document.getElementById("game");
       const ctx = canvas.getContext("2d");
       const rotateOverlay = document.getElementById("rotateOverlay");
+      const forceEnterButton = document.getElementById("forceEnterBtn");
+      const gameShell = document.querySelector(".game-shell");
+      const mobileControls = document.getElementById("mobileControls");
 
       const isTouchDevice =
         navigator.maxTouchPoints > 0 ||
         "ontouchstart" in window ||
         window.matchMedia("(pointer: coarse)").matches;
 
-      // CSS 的 orientation 媒体查询负责基础显示；这里再加一层基于
-      // 视口宽高和 aspect-ratio 的兜底，专门处理某些手机/开发者工具
-      // 中 orientation 媒体查询更新不及时的情况。
-      const portraitMedia = window.matchMedia("(orientation: portrait)");
-      const landscapeMedia = window.matchMedia("(orientation: landscape)");
-      const aspectMedia = window.matchMedia("(min-aspect-ratio: 1 / 1)");
+      const isWeChatBrowser = /MicroMessenger/i.test(navigator.userAgent);
+      document.body.classList.toggle("touch-device", isTouchDevice);
+      document.body.classList.toggle("wechat-browser", isWeChatBrowser);
+      document.documentElement.dataset.build = "20261030-forceenter1";
 
-      function isLandscapeViewport() {
-        const width =
-          window.innerWidth ||
-          document.documentElement.clientWidth ||
-          0;
-        const height =
-          window.innerHeight ||
-          document.documentElement.clientHeight ||
-          0;
-        if (width > 0 && height > 0 && width > height) {
-          return true;
-        }
-
-        const visual = window.visualViewport;
-        if (visual && visual.width > visual.height) {
-          return true;
-        }
-
-        // 某些 WebView / 手机浏览器旋转后布局视口更新滞后，
-        // 但物理屏幕方向已经变化，这里再补一层兜底。
-        if (isTouchDevice) {
-          if (
-            screen.orientation &&
-            typeof screen.orientation.type === "string" &&
-            screen.orientation.type.indexOf("landscape") !== -1
-          ) {
-            return true;
-          }
-          if (
-            typeof window.orientation === "number" &&
-            Math.abs(window.orientation) === 90
-          ) {
-            return true;
-          }
-        }
-
-        return aspectMedia.matches || landscapeMedia.matches;
-      }
-
-      function updateOrientationClasses() {
-        const landscape = isLandscapeViewport();
-        document.body.classList.toggle("touch-device", isTouchDevice);
-        document.body.classList.toggle(
-          "is-portrait",
-          isTouchDevice && !landscape
-        );
-        document.body.classList.toggle(
-          "is-landscape",
-          isTouchDevice && landscape
-        );
-        return landscape;
-      }
-
-      updateOrientationClasses();
+      // 本文件不调用 screen.orientation.lock，也不在 JS 里判断横竖屏。
+      // 横屏隐藏提示层完全由 CSS 的 orientation 媒体查询负责；
+      // 另有“强制进入游戏”按钮作为兜底。
 
       const W = 1280;
       const H = 720;
@@ -909,10 +942,7 @@
 
       resizeBackingStore();
       if (window.visualViewport) {
-        window.visualViewport.addEventListener("resize", () => {
-          resizeBackingStore();
-          requestAnimationFrame(syncMobileLayout);
-        });
+        window.visualViewport.addEventListener("resize", resizeBackingStore);
       }
 
       // ---------------------------------------------------------------------
@@ -940,7 +970,7 @@
         frogImageReady = false;
         console.warn("奶蛙素材不可用，已切换为黄色圆形占位。");
       };
-      frogImage.src = "frog-idle.png?v=20261028";
+      frogImage.src = "frog-idle.png?v=20261030w1";
       setTimeout(() => {
         if (!frogImageReady && !frogIdleUsingEmbedded) {
           frogIdleUsingEmbedded = true;
@@ -965,7 +995,7 @@
         frogLaughReady = false;
         console.warn("奶蛙大笑素材不可用，已使用备用形象。");
       };
-      frogLaughImage.src = "frog-laugh.png?v=20261028";
+      frogLaughImage.src = "frog-laugh.png?v=20261030w1";
       setTimeout(() => {
         if (!frogLaughReady && !frogLaughUsingEmbedded) {
           frogLaughUsingEmbedded = true;
@@ -989,13 +1019,13 @@
 
       const dashAudio = new Audio();
       dashAudio.preload = "auto";
-      dashAudio.src = "dash.mp3?v=20261028";
+      dashAudio.src = "dash.mp3?v=20261030w1";
       dashAudio.volume = EXTERNAL_DASH_VOLUME;
       dashAudio.load();
 
       const laughAudio = new Audio();
       laughAudio.preload = "auto";
-      laughAudio.src = "laugh.mp3?v=20261028";
+      laughAudio.src = "laugh.mp3?v=20261030w1";
       laughAudio.volume = EXTERNAL_LAUGH_VOLUME;
       laughAudio.load();
 
@@ -1094,6 +1124,80 @@
 
         return audioMuted;
       }
+
+      // 微信内置浏览器：部分版本必须等 WeixinJSBridgeReady 之后
+      // 才允许 Web Audio / HTMLAudio 出声。这里提前唤醒音频上下文，
+      // 同时保留首次触摸唤醒，二者互为兜底。
+      let wechatBridgeReady = false;
+      let wechatAudioPrimed = false;
+
+      function primeWeChatAudio() {
+        if (audioMuted) return;
+        const context = ensureAudio();
+        if (!context) return;
+        if (context.state === "suspended") {
+          context.resume().catch(() => {});
+        }
+        if (wechatAudioPrimed) return;
+        wechatAudioPrimed = true;
+
+        try {
+          const silentBuffer = context.createBuffer(1, 1, 22050);
+          const silentSource = context.createBufferSource();
+          silentSource.buffer = silentBuffer;
+          silentSource.connect(context.destination);
+          silentSource.start(0);
+        } catch (error) {
+          // 某些微信版本在非手势回调中会拒绝，忽略即可；
+          // 首次触摸会再次走 ensureAudio。
+        }
+      }
+
+      function handleWeixinBridgeReady() {
+        if (wechatBridgeReady) return;
+        wechatBridgeReady = true;
+
+        if (
+          window.WeixinJSBridge &&
+          typeof window.WeixinJSBridge.invoke === "function"
+        ) {
+          try {
+            window.WeixinJSBridge.invoke(
+              "getNetworkType",
+              {},
+              primeWeChatAudio
+            );
+          } catch (error) {
+            primeWeChatAudio();
+          }
+        } else {
+          primeWeChatAudio();
+        }
+      }
+
+      document.addEventListener(
+        "WeixinJSBridgeReady",
+        handleWeixinBridgeReady,
+        false
+      );
+      if (window.WeixinJSBridge) {
+        setTimeout(handleWeixinBridgeReady, 0);
+      }
+
+      function wakeAudioOnUserGesture() {
+        primeWeChatAudio();
+      }
+
+      document.addEventListener("touchstart", wakeAudioOnUserGesture, {
+        capture: true,
+        once: true,
+        passive: true,
+      });
+      document.addEventListener("pointerdown", wakeAudioOnUserGesture, {
+        capture: true,
+        once: true,
+        passive: true,
+      });
 
       function getNoiseBuffer() {
         if (!audioContext) return null;
@@ -1556,107 +1660,19 @@
       let floaters = [];
       let downKeys = new Set();
 
-      let portraitAutoPaused = false;
-
-      function applyOrientationOverlay(landscape) {
-        if (!rotateOverlay) return;
-        if (landscape) {
-          rotateOverlay.style.setProperty("display", "none", "important");
-          rotateOverlay.style.setProperty("visibility", "hidden", "important");
-          rotateOverlay.style.setProperty("opacity", "0", "important");
-          rotateOverlay.style.setProperty(
-            "pointer-events",
-            "none",
-            "important"
-          );
-          rotateOverlay.setAttribute("aria-hidden", "true");
-        } else {
-          rotateOverlay.style.removeProperty("display");
-          rotateOverlay.style.removeProperty("visibility");
-          rotateOverlay.style.removeProperty("opacity");
-          rotateOverlay.style.removeProperty("pointer-events");
-          rotateOverlay.removeAttribute("aria-hidden");
-        }
-      }
-
-      function syncMobileLayout() {
-        const landscape = updateOrientationClasses();
-        applyOrientationOverlay(landscape);
-
-        if (!isTouchDevice) return;
-
-        if (!landscape) {
-          releaseAllVirtualControls();
-          if (game.status === "playing" && !game.paused) {
-            game.paused = true;
-            portraitAutoPaused = true;
-            downKeys.clear();
-          }
-        } else if (portraitAutoPaused) {
-          portraitAutoPaused = false;
-          if (game.status === "playing") {
-            game.paused = false;
-          }
-        }
-      }
-
-      function refreshViewportLayout() {
+      // 只监听尺寸变化，不做任何横竖屏 JS 判断；提示层完全交给 CSS。
+      function fitCanvasToViewport() {
         resizeBackingStore();
-        syncMobileLayout();
+        requestAnimationFrame(resizeBackingStore);
       }
 
-      function handleOrientationChange() {
-        refreshViewportLayout();
-        requestAnimationFrame(refreshViewportLayout);
-        setTimeout(refreshViewportLayout, 120);
-        setTimeout(refreshViewportLayout, 360);
-        setTimeout(refreshViewportLayout, 800);
+      window.addEventListener("resize", fitCanvasToViewport);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener("resize", fitCanvasToViewport);
       }
-
-      window.addEventListener("resize", () => {
-        resizeBackingStore();
-        requestAnimationFrame(refreshViewportLayout);
-      });
-      window.addEventListener("orientationchange", handleOrientationChange);
-
-      if (portraitMedia.addEventListener) {
-        portraitMedia.addEventListener("change", handleOrientationChange);
-        landscapeMedia.addEventListener("change", handleOrientationChange);
-        aspectMedia.addEventListener("change", handleOrientationChange);
-      } else if (portraitMedia.addListener) {
-        portraitMedia.addListener(handleOrientationChange);
-        landscapeMedia.addListener(handleOrientationChange);
-        aspectMedia.addListener(handleOrientationChange);
+      if (window.ResizeObserver && gameShell) {
+        new ResizeObserver(fitCanvasToViewport).observe(gameShell);
       }
-
-      if (screen.orientation && screen.orientation.addEventListener) {
-        screen.orientation.addEventListener("change", handleOrientationChange);
-      }
-
-      // 开发者工具或部分手机浏览器在旋转后不一定派发 resize /
-      // orientationchange。这里做一个极轻量的兜底检查：只有宽高或
-      // 横竖屏状态真正变化时才重设 Canvas，不会每 250ms 重绘。
-      let lastViewportSignature = "";
-      let lastLandscapeState = null;
-      function checkViewportFallback() {
-        const signature =
-          `${window.innerWidth}x${window.innerHeight}x` +
-          `${window.devicePixelRatio}`;
-        const landscape = isLandscapeViewport();
-        if (
-          signature !== lastViewportSignature ||
-          landscape !== lastLandscapeState
-        ) {
-          lastViewportSignature = signature;
-          lastLandscapeState = landscape;
-          refreshViewportLayout();
-        }
-      }
-      lastViewportSignature =
-        `${window.innerWidth}x${window.innerHeight}x` +
-        `${window.devicePixelRatio}`;
-      lastLandscapeState = isLandscapeViewport();
-      window.setInterval(checkViewportFallback, 250);
 
       let lastTimestamp = 0;
       let sceneTime = 0;
@@ -1736,7 +1752,6 @@
       }
 
       function togglePause() {
-        if (isTouchDevice && !isLandscapeViewport()) return;
         if (game.status !== "playing") return;
         if (game.levelIntroTimer > 0) return;
         game.paused = !game.paused;
@@ -1866,6 +1881,75 @@
           ? "pointer"
           : "default";
       });
+
+      // ---------------------------------------------------------------------
+      // 触摸滚动防护（重点是微信内置浏览器）
+      // ---------------------------------------------------------------------
+      function preventTouchScroll(event) {
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+      }
+
+      canvas.addEventListener("touchstart", preventTouchScroll, {
+        passive: false,
+      });
+      canvas.addEventListener("touchmove", preventTouchScroll, {
+        passive: false,
+      });
+
+      if (mobileControls) {
+        mobileControls.addEventListener("touchstart", preventTouchScroll, {
+          passive: false,
+        });
+        mobileControls.addEventListener("touchmove", preventTouchScroll, {
+          passive: false,
+        });
+      }
+
+      document.addEventListener(
+        "touchmove",
+        (event) => {
+          const target = event.target;
+          if (
+            target &&
+            typeof target.closest === "function" &&
+            target.closest(".game-shell, .rotate-overlay")
+          ) {
+            if (event.cancelable) event.preventDefault();
+          }
+        },
+        { passive: false }
+      );
+
+      if (isWeChatBrowser) {
+        document.addEventListener("touchmove", preventTouchScroll, {
+          passive: false,
+        });
+      }
+
+      document.addEventListener("gesturestart", preventTouchScroll, {
+        passive: false,
+      });
+
+      function forceEnterGame(event) {
+        if (event) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+        document.body.classList.add("force-entered");
+        rotateOverlay.style.setProperty("display", "none", "important");
+        rotateOverlay.style.setProperty("visibility", "hidden", "important");
+        rotateOverlay.style.setProperty("opacity", "0", "important");
+        rotateOverlay.style.setProperty("pointer-events", "none", "important");
+        rotateOverlay.setAttribute("aria-hidden", "true");
+        ensureAudio();
+        resizeBackingStore();
+      }
+
+      if (forceEnterButton) {
+        forceEnterButton.addEventListener("click", forceEnterGame);
+      }
 
       // ---------------------------------------------------------------------
       // 移动端虚拟按键
@@ -2271,7 +2355,6 @@
         canvas.style.cursor = "default";
 
         startLevel(1, { initial: true });
-        syncMobileLayout();
       }
 
       // ---------------------------------------------------------------------
@@ -6872,7 +6955,6 @@
       };
 
       startLevel(1, { initial: true });
-      syncMobileLayout();
       requestAnimationFrame(frame);
     })();
   </script>
